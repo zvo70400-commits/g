@@ -1,0 +1,215 @@
+-- =========================================================
+-- 🐾 GROW A GARDEN 2 - FULLY AUTONOMOUS HOPPER
+-- =========================================================
+
+local Players = game:GetService('Players')
+local HttpService = game:GetService('HttpService')
+local Workspace = game:GetService('Workspace')
+local TeleportService = game:GetService('TeleportService')
+local lp = Players.LocalPlayer
+
+local WEBHOOK = "https://discord.com/api/webhooks/1515549710285537321/_0szre8pYnNprkfUvRA2uxBspB7KPNHyiymstqiqI9iWxVRl6brWVGjRXCJu2Lt1DNY3"
+
+local PET_PRICES = {
+    Frog = 10000, Bunny = 20000, Owl = 25000,
+    Raccoon = 15000000, Unicorn = 12500000, Deer = 50000,
+    Bee = 1000000, GoldenDragonfly = 9000000, Robin = 75000,
+}
+
+getgenv().GLOBAL_SERVER_BLACKLIST = getgenv().GLOBAL_SERVER_BLACKLIST or {}
+getgenv().GLOBAL_PET_HASHES = getgenv().GLOBAL_PET_HASHES or {}
+
+local function formatMoney(v)
+    if not v then return "?" end
+    if v >= 1e6 then return string.format("%.1fM", v / 1e6) end
+    if v >= 1e3 then return string.format("%.1fK", v / 1e3) end
+    return tostring(v)
+end
+
+local function skipLoading()
+    local playerGui = lp:FindFirstChild("PlayerGui")
+    if not playerGui then return end
+    local loadingGui = playerGui:FindFirstChild("LoadingGui")
+    if loadingGui then
+        local variant1 = loadingGui:FindFirstChild("Variant1Frame")
+        if variant1 then
+            local inner = variant1:FindFirstChild("InnerFrame")
+            if inner then
+                local pressAny = inner:FindFirstChild("PressAnyTxt")
+                if pressAny then
+                    local btn = pressAny.Parent:FindFirstChildWhichIsA("TextButton")
+                    if btn then pcall(function() btn:Click() end) end
+                end
+            end
+        end
+    end
+end
+
+local function scanWildPets()
+    local results = {}
+    local map = Workspace:FindFirstChild("Map")
+    if not map then return results end
+    local wildPets = map:FindFirstChild("WildPetSpawns")
+    if not wildPets then return results end
+    
+    for _, pet in ipairs(wildPets:GetChildren()) do
+        if pet:IsA("Model") and pet.Name and string.find(pet.Name, "WildPet_") then
+            local petType = nil
+            for name in pairs(PET_PRICES) do
+                if string.find(pet.Name, name) then
+                    petType = name
+                    break
+                end
+            end
+            if petType and PET_PRICES[petType] then
+                local root = pet:FindFirstChild("RootPart")
+                local timeLeft = "Unknown"
+                if root then
+                    local timer = root:FindFirstChild("PetLeaveTimer")
+                    if timer then
+                        local label = timer:FindFirstChild("TextLabel")
+                        if label and label.Text then timeLeft = label.Text end
+                    end
+                end
+                table.insert(results, {pet = petType, price = PET_PRICES[petType], timeLeft = timeLeft})
+            end
+        end
+    end
+    return results
+end
+
+local function getPetsHash(pets)
+    if #pets == 0 then return "" end
+    local str = ""
+    for _, p in ipairs(pets) do str = str .. p.pet .. p.timeLeft end
+    return str
+end
+
+local function getRequester()
+    if http_request then return http_request end
+    if request then return request end
+    if syn and syn.request then return syn.request end
+    if fluxus and fluxus.request then return fluxus.request end
+    if KRNL_HTTP and KRNL_HTTP.request then return KRNL_HTTP.request end
+    return nil
+end
+
+local function sendToDiscord(pets, serverId)
+    local req = getRequester()
+    if not req or #pets == 0 then return end
+    
+    local hash = getPetsHash(pets)
+    if getgenv().GLOBAL_PET_HASHES[hash] then return end
+    getgenv().GLOBAL_PET_HASHES[hash] = os.time()
+    
+    local lines = {}
+    for _, p in ipairs(pets) do
+        table.insert(lines, string.format("🐾 **%s** - %s | ⏰ %s", p.pet, formatMoney(p.price), p.timeLeft))
+    end
+    
+    local cmd = string.format("```lua\nGame:GetService('TeleportService'):TeleportToPlaceInstance(%d, '%s')\n```", game.PlaceId, serverId)
+    
+    local payload = {
+        username = "🐾 Auto Scanner",
+        embeds = {{
+            title = "Wild Pets Found!",
+            description = table.concat(lines, "\n"),
+            color = 0x44FF44,
+            fields = {{name = "🚀 Teleport", value = cmd, inline = false}},
+            footer = {text = string.format("Server: %s", string.sub(serverId, 1, 8))}
+        }}
+    }
+    
+    pcall(function()
+        req({Url = WEBHOOK, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HttpService:JSONEncode(payload)})
+        print("Sent to Discord!")
+    end)
+end
+
+-- ХОППЕР
+local PLACE_ID = game.PlaceId
+local visited = {}
+local cursor = nil
+
+local function fetchServers()
+    local servers = {}
+    local url = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100", PLACE_ID)
+    if cursor then url = url .. "&cursor=" .. cursor end
+    
+    local ok, res = pcall(game.HttpGet, game, url)
+    if not ok then return {} end
+    local ok2, data = pcall(HttpService.JSONDecode, HttpService, res)
+    if not ok2 or not data or not data.data then return {} end
+    
+    cursor = data.nextPageCursor
+    for _, srv in ipairs(data.data) do
+        if srv.playing and srv.playing >= 1 and srv.playing <= 12 then
+            if not visited[srv.id] and not getgenv().GLOBAL_SERVER_BLACKLIST[srv.id] and srv.id ~= game.JobId then
+                table.insert(servers, srv)
+            end
+        end
+    end
+    return servers
+end
+
+local function doHop()
+    local servers = fetchServers()
+    if #servers == 0 then
+        print("No servers, waiting...")
+        task.wait(5)
+        return doHop()
+    end
+    
+    local target = servers[math.random(#servers)]
+    print(string.format("Hopping to %s (%d players)", string.sub(target.id, 1, 8), target.playing))
+    visited[target.id] = true
+    getgenv().GLOBAL_SERVER_BLACKLIST[target.id] = true
+    
+    task.wait(2)
+    pcall(function()
+        TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, lp)
+    end)
+end
+
+-- АВТОПЕРЕЗАПУСК ЧЕРЕЗ QUEUE_ON_TELEPORT
+if not getgenv()._HOPPER_LOADED then
+    getgenv()._HOPPER_LOADED = true
+    
+    if queue_on_teleport then
+        queue_on_teleport([[
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/your/raw/script.lua"))()
+        ]])
+    end
+    
+    -- ОСНОВНОЙ ЦИКЛ
+    local function run()
+        print("🐾 Auto Scanner Started")
+        
+        repeat task.wait() until lp and lp.Character
+        task.wait(8)
+        
+        skipLoading()
+        task.wait(2)
+        
+        local pets = scanWildPets()
+        print(string.format("Found: %d pets", #pets))
+        
+        if #pets > 0 then
+            sendToDiscord(pets, game.JobId)
+            task.wait(5)
+        end
+        
+        print("Hopping...")
+        doHop()
+    end
+    
+    -- БЕСКОНЕЧНЫЙ ПЕРЕЗАПУСК
+    while true do
+        local success, err = pcall(run)
+        if not success then
+            print("Error: " .. tostring(err))
+        end
+        print("Restarting in 8 seconds...")
+        task.wait(8)
+    end
+end
