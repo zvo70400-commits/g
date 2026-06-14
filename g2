@@ -1,5 +1,5 @@
 -- =========================================================
--- 🐾 GROW A GARDEN 2 - SELF-RESTARTING HOPPER
+-- 🐾 GROW A GARDEN 2 - ULTRA SAFE HOPPER
 -- =========================================================
 
 local Players = game:GetService('Players')
@@ -7,7 +7,6 @@ local HttpService = game:GetService('HttpService')
 local Workspace = game:GetService('Workspace')
 local TeleportService = game:GetService('TeleportService')
 local RunService = game:GetService('RunService')
-local lp = Players.LocalPlayer
 
 local SCRIPT_URL = "https://raw.githubusercontent.com/zvo70400-commits/g/refs/heads/main/g2"
 local WEBHOOK = "https://discord.com/api/webhooks/1515549710285537321/_0szre8pYnNprkfUvRA2uxBspB7KPNHyiymstqiqI9iWxVRl6brWVGjRXCJu2Lt1DNY3"
@@ -29,46 +28,53 @@ local function formatMoney(v)
     return tostring(v)
 end
 
--- =========================================================
--- ГАРАНТИРОВАННЫЙ ПРОПУСК ЛОАДИНГА
--- =========================================================
+-- БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ЛОКАЛЬНОГО ИГРОКА
+local function getLocalPlayer()
+    local success, result = pcall(function()
+        return Players.LocalPlayer
+    end)
+    if success and result then
+        return result
+    end
+    return nil
+end
+
+-- ПРОПУСК ЛОАДИНГА
 local function skipLoading()
-    -- Способ 1: через PlayerGui
+    local lp = getLocalPlayer()
+    if not lp then return end
+    
     local playerGui = lp:FindFirstChild("PlayerGui")
-    if playerGui then
-        -- Ищем LoadingGui
-        local loadingGui = playerGui:FindFirstChild("LoadingGui")
-        if loadingGui then
-            -- Нажимаем все кнопки подряд
-            for _, btn in ipairs(loadingGui:GetDescendants()) do
-                if btn:IsA("TextButton") then
-                    pcall(function() btn:Click() end)
-                end
-            end
-        end
-        
-        -- Способ 2: ищем любую кнопку с PressAnyTxt
-        for _, btn in ipairs(playerGui:GetDescendants()) do
-            if btn:IsA("TextButton") and (btn.Name == "PressAnyTxt" or string.find(btn.Name, "Press")) then
+    if not playerGui then return end
+    
+    -- Ищем LoadingGui
+    local loadingGui = playerGui:FindFirstChild("LoadingGui")
+    if loadingGui then
+        for _, btn in ipairs(loadingGui:GetDescendants()) do
+            if btn:IsA("TextButton") then
                 pcall(function() btn:Click() end)
             end
         end
     end
     
-    -- Способ 3: через VirtualInputManager (симуляция нажатия клавиши)
-    local virtual = game:GetService("VirtualInputManager")
-    if virtual then
-        pcall(function()
-            virtual:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
-            virtual:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
-        end)
+    -- Ищем любую кнопку с Press
+    for _, btn in ipairs(playerGui:GetDescendants()) do
+        if btn:IsA("TextButton") and (btn.Name == "PressAnyTxt" or string.find(btn.Name or "", "Press")) then
+            pcall(function() btn:Click() end)
+        end
     end
 end
 
+-- СКАНЕР ПИТОМЦЕВ
 local function scanWildPets()
     local results = {}
+    
+    local lp = getLocalPlayer()
+    if not lp then return results end
+    
     local map = Workspace:FindFirstChild("Map")
     if not map then return results end
+    
     local wildPets = map:FindFirstChild("WildPetSpawns")
     if not wildPets then return results end
 
@@ -130,7 +136,7 @@ local function sendToDiscord(pets, serverId)
     local cmd = string.format("```lua\nGame:GetService('TeleportService'):TeleportToPlaceInstance(%d, '%s')\n```", game.PlaceId, serverId)
 
     local payload = {
-        username = "🐾 Synapse Z Scanner",
+        username = "🐾 Scanner",
         embeds = {{
             title = "Wild Pets Found!",
             description = table.concat(lines, "\n"),
@@ -185,22 +191,40 @@ local function doHop()
     getgenv().GLOBAL_SERVER_BLACKLIST[target.id] = true
 
     task.wait(1)
-    TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, lp)
+    
+    local lp = getLocalPlayer()
+    if lp then
+        TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, lp)
+    else
+        TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id)
+    end
 end
 
 -- =========================================================
 -- ОСНОВНОЙ ЦИКЛ
 -- =========================================================
 local function run()
-    print("🐾 Synapse Z Auto Scanner Started")
+    print("🐾 Scanner Started")
     
-    -- Ждём загрузки
-    repeat task.wait() until lp
+    -- Ждём игрока
+    local lp = nil
+    local waitTime = 0
+    while not lp and waitTime < 30 do
+        lp = getLocalPlayer()
+        if not lp then
+            task.wait(1)
+            waitTime = waitTime + 1
+        end
+    end
+    
+    if not lp then
+        print("❌ LocalPlayer not found after 30 seconds, retrying...")
+        return
+    end
+    
+    print("✅ LocalPlayer found: " .. (lp.Name or "Unknown"))
+    
     task.wait(2)
-    
-    -- Пропускаем лоадинг (несколько раз для гарантии)
-    skipLoading()
-    task.wait(1)
     skipLoading()
     task.wait(1)
     
@@ -217,29 +241,16 @@ local function run()
 end
 
 -- =========================================================
--- ВСТРОЕННЫЙ АВТОПЕРЕЗАПУСК
+-- ЗАПУСК
 -- =========================================================
-if not getgenv()._HOPPER_LOADED then
-    getgenv()._HOPPER_LOADED = true
-    
-    -- Способ 1: queue_on_teleport (если есть)
-    if queue_on_teleport then
-        queue_on_teleport([[
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/zvo70400-commits/g/refs/heads/main/g2"))()
-        ]])
-        print("✅ queue_on_teleport registered")
+print("🐾 Ultra Safe Scanner")
+print("📡 Webhook: " .. WEBHOOK)
+
+while true do
+    local success, err = pcall(run)
+    if not success then
+        print("❌ Error: " .. tostring(err))
     end
-    
-    -- Способ 2: бесконечный цикл (если нет queue)
-    while true do
-        local success, err = pcall(run)
-        if not success then
-            print("❌ Error: " .. tostring(err))
-        end
-        print("🔁 Restarting in 10 seconds...")
-        task.wait(10)
-    end
-else
-    -- Если уже был запущен, просто запускаем цикл
-    run()
+    print("🔁 Restarting in 10 seconds...")
+    task.wait(10)
 end
