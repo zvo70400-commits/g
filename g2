@@ -1,5 +1,5 @@
 -- =========================================================
--- 🐾 GROW A GARDEN 2 - SIMPLIFIED WORKING HOPPER
+-- 🐾 GROW A GARDEN 2 - SYNAPSE Z AUTO HOPPER
 -- =========================================================
 
 local Players = game:GetService('Players')
@@ -8,6 +8,7 @@ local Workspace = game:GetService('Workspace')
 local TeleportService = game:GetService('TeleportService')
 local lp = Players.LocalPlayer
 
+local SCRIPT_URL = "https://raw.githubusercontent.com/zvo70400-commits/g/refs/heads/main/g2"
 local WEBHOOK = "https://discord.com/api/webhooks/1515549710285537321/_0szre8pYnNprkfUvRA2uxBspB7KPNHyiymstqiqI9iWxVRl6brWVGjRXCJu2Lt1DNY3"
 
 local PET_PRICES = {
@@ -32,9 +33,8 @@ local function skipLoading()
     local loadingGui = playerGui:FindFirstChild("LoadingGui")
     if loadingGui then
         for _, btn in ipairs(loadingGui:GetDescendants()) do
-            if btn:IsA("TextButton") and btn.Name == "PressAnyTxt" then
+            if btn:IsA("TextButton") then
                 pcall(function() btn:Click() end)
-                print("✅ Loading skipped")
                 break
             end
         end
@@ -85,6 +85,7 @@ local function getRequester()
     if http_request then return http_request end
     if request then return request end
     if syn and syn.request then return syn.request end
+    if syn and syn.request then return syn.request end
     if fluxus and fluxus.request then return fluxus.request end
     if KRNL_HTTP and KRNL_HTTP.request then return KRNL_HTTP.request end
     return nil
@@ -106,7 +107,7 @@ local function sendToDiscord(pets, serverId)
     local cmd = string.format("```lua\nGame:GetService('TeleportService'):TeleportToPlaceInstance(%d, '%s')\n```", game.PlaceId, serverId)
 
     local payload = {
-        username = "🐾 Auto Scanner",
+        username = "🐾 Synapse Z Scanner",
         embeds = {{
             title = "Wild Pets Found!",
             description = table.concat(lines, "\n"),
@@ -151,8 +152,7 @@ end
 local function doHop()
     local servers = fetchServers()
     if #servers == 0 then
-        print("⚠️ No servers, waiting 10s...")
-        task.wait(10)
+        task.wait(3)
         return doHop()
     end
 
@@ -161,40 +161,28 @@ local function doHop()
     visited[target.id] = true
     getgenv().GLOBAL_SERVER_BLACKLIST[target.id] = true
 
-    task.wait(2)
+    task.wait(1)
     TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, lp)
 end
 
 -- =========================================================
--- ОСНОВНОЙ ЦИКЛ (УПРОЩЁННЫЙ)
+-- ОСНОВНОЙ ЦИКЛ
 -- =========================================================
-print("🐾 Auto Scanner Started")
-print("⏳ Waiting for game to load...")
+print("🐾 Synapse Z Auto Scanner Started")
 
--- Ждём загрузки персонажа (максимум 30 секунд)
-local waitTime = 0
-while waitTime < 30 do
-    if lp and lp.Character and lp.Character:FindFirstChild("Humanoid") then
-        break
-    end
+while true do
+    task.wait(2)
+    skipLoading()
     task.wait(1)
-    waitTime = waitTime + 1
-    print("⏳ Waiting for character... " .. waitTime .. "s")
+    
+    local pets = scanWildPets()
+    print(string.format("📊 Found: %d pets", #pets))
+
+    if #pets > 0 then
+        sendToDiscord(pets, game.JobId)
+        task.wait(2)
+    end
+    
+    print("🔄 Hopping...")
+    doHop()
 end
-
-print("✅ Character loaded!")
-task.wait(5)
-
-skipLoading()
-task.wait(2)
-
-local pets = scanWildPets()
-print(string.format("📊 Found: %d pets", #pets))
-
-if #pets > 0 then
-    sendToDiscord(pets, game.JobId)
-    task.wait(5)
-end
-
-print("🔄 Hopping to next server...")
-doHop()
