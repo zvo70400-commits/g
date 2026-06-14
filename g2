@@ -1,5 +1,5 @@
 -- =========================================================
--- 🐾 GROW A GARDEN 2 - FULLY AUTONOMOUS HOPPER
+-- 🐾 GROW A GARDEN 2 - SIMPLIFIED WORKING HOPPER
 -- =========================================================
 
 local Players = game:GetService('Players')
@@ -31,15 +31,11 @@ local function skipLoading()
     if not playerGui then return end
     local loadingGui = playerGui:FindFirstChild("LoadingGui")
     if loadingGui then
-        local variant1 = loadingGui:FindFirstChild("Variant1Frame")
-        if variant1 then
-            local inner = variant1:FindFirstChild("InnerFrame")
-            if inner then
-                local pressAny = inner:FindFirstChild("PressAnyTxt")
-                if pressAny then
-                    local btn = pressAny.Parent:FindFirstChildWhichIsA("TextButton")
-                    if btn then pcall(function() btn:Click() end) end
-                end
+        for _, btn in ipairs(loadingGui:GetDescendants()) do
+            if btn:IsA("TextButton") and btn.Name == "PressAnyTxt" then
+                pcall(function() btn:Click() end)
+                print("✅ Loading skipped")
+                break
             end
         end
     end
@@ -51,7 +47,7 @@ local function scanWildPets()
     if not map then return results end
     local wildPets = map:FindFirstChild("WildPetSpawns")
     if not wildPets then return results end
-    
+
     for _, pet in ipairs(wildPets:GetChildren()) do
         if pet:IsA("Model") and pet.Name and string.find(pet.Name, "WildPet_") then
             local petType = nil
@@ -97,18 +93,18 @@ end
 local function sendToDiscord(pets, serverId)
     local req = getRequester()
     if not req or #pets == 0 then return end
-    
+
     local hash = getPetsHash(pets)
     if getgenv().GLOBAL_PET_HASHES[hash] then return end
     getgenv().GLOBAL_PET_HASHES[hash] = os.time()
-    
+
     local lines = {}
     for _, p in ipairs(pets) do
         table.insert(lines, string.format("🐾 **%s** - %s | ⏰ %s", p.pet, formatMoney(p.price), p.timeLeft))
     end
-    
+
     local cmd = string.format("```lua\nGame:GetService('TeleportService'):TeleportToPlaceInstance(%d, '%s')\n```", game.PlaceId, serverId)
-    
+
     local payload = {
         username = "🐾 Auto Scanner",
         embeds = {{
@@ -119,10 +115,10 @@ local function sendToDiscord(pets, serverId)
             footer = {text = string.format("Server: %s", string.sub(serverId, 1, 8))}
         }}
     }
-    
+
     pcall(function()
         req({Url = WEBHOOK, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HttpService:JSONEncode(payload)})
-        print("Sent to Discord!")
+        print("✅ Sent to Discord!")
     end)
 end
 
@@ -135,12 +131,12 @@ local function fetchServers()
     local servers = {}
     local url = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100", PLACE_ID)
     if cursor then url = url .. "&cursor=" .. cursor end
-    
+
     local ok, res = pcall(game.HttpGet, game, url)
     if not ok then return {} end
     local ok2, data = pcall(HttpService.JSONDecode, HttpService, res)
     if not ok2 or not data or not data.data then return {} end
-    
+
     cursor = data.nextPageCursor
     for _, srv in ipairs(data.data) do
         if srv.playing and srv.playing >= 1 and srv.playing <= 12 then
@@ -155,61 +151,50 @@ end
 local function doHop()
     local servers = fetchServers()
     if #servers == 0 then
-        print("No servers, waiting...")
-        task.wait(5)
+        print("⚠️ No servers, waiting 10s...")
+        task.wait(10)
         return doHop()
     end
-    
+
     local target = servers[math.random(#servers)]
-    print(string.format("Hopping to %s (%d players)", string.sub(target.id, 1, 8), target.playing))
+    print(string.format("🚀 Hopping to %s (%d players)", string.sub(target.id, 1, 8), target.playing))
     visited[target.id] = true
     getgenv().GLOBAL_SERVER_BLACKLIST[target.id] = true
-    
+
     task.wait(2)
-    pcall(function()
-        TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, lp)
-    end)
+    TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, lp)
 end
 
--- АВТОПЕРЕЗАПУСК ЧЕРЕЗ QUEUE_ON_TELEPORT
-if not getgenv()._HOPPER_LOADED then
-    getgenv()._HOPPER_LOADED = true
-    
-    if queue_on_teleport then
-        queue_on_teleport([[
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/your/raw/script.lua"))()
-        ]])
+-- =========================================================
+-- ОСНОВНОЙ ЦИКЛ (УПРОЩЁННЫЙ)
+-- =========================================================
+print("🐾 Auto Scanner Started")
+print("⏳ Waiting for game to load...")
+
+-- Ждём загрузки персонажа (максимум 30 секунд)
+local waitTime = 0
+while waitTime < 30 do
+    if lp and lp.Character and lp.Character:FindFirstChild("Humanoid") then
+        break
     end
-    
-    -- ОСНОВНОЙ ЦИКЛ
-    local function run()
-        print("🐾 Auto Scanner Started")
-        
-        repeat task.wait() until lp and lp.Character
-        task.wait(8)
-        
-        skipLoading()
-        task.wait(2)
-        
-        local pets = scanWildPets()
-        print(string.format("Found: %d pets", #pets))
-        
-        if #pets > 0 then
-            sendToDiscord(pets, game.JobId)
-            task.wait(5)
-        end
-        
-        print("Hopping...")
-        doHop()
-    end
-    
-    -- БЕСКОНЕЧНЫЙ ПЕРЕЗАПУСК
-    while true do
-        local success, err = pcall(run)
-        if not success then
-            print("Error: " .. tostring(err))
-        end
-        print("Restarting in 8 seconds...")
-        task.wait(8)
-    end
+    task.wait(1)
+    waitTime = waitTime + 1
+    print("⏳ Waiting for character... " .. waitTime .. "s")
 end
+
+print("✅ Character loaded!")
+task.wait(5)
+
+skipLoading()
+task.wait(2)
+
+local pets = scanWildPets()
+print(string.format("📊 Found: %d pets", #pets))
+
+if #pets > 0 then
+    sendToDiscord(pets, game.JobId)
+    task.wait(5)
+end
+
+print("🔄 Hopping to next server...")
+doHop()
