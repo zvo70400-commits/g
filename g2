@@ -1,26 +1,28 @@
 -- =========================================================
--- 🐾 GROW A GARDEN 2 - ULTRA SAFE HOPPER
+-- 🐾 GROW A GARDEN 2 - FINAL WORKING SCRIPT (HARD RESET)
 -- =========================================================
 
 local Players = game:GetService('Players')
 local HttpService = game:GetService('HttpService')
 local Workspace = game:GetService('Workspace')
 local TeleportService = game:GetService('TeleportService')
-local RunService = game:GetService('RunService')
+local lp = Players.LocalPlayer
 
-local SCRIPT_URL = "https://raw.githubusercontent.com/zvo70400-commits/g/refs/heads/main/g2"
+-- ⚙️ НАСТРОЙКИ (ЗДЕСЬ ТВОЙ ВЕБХУК)
 local WEBHOOK = "https://discord.com/api/webhooks/1515549710285537321/_0szre8pYnNprkfUvRA2uxBspB7KPNHyiymstqiqI9iWxVRl6brWVGjRXCJu2Lt1DNY3"
 
+-- Цены питомцев
 local PET_PRICES = {
     Frog = 10000, Bunny = 20000, Owl = 25000,
     Raccoon = 15000000, Unicorn = 12500000, Deer = 50000,
     Bee = 1000000, GoldenDragonfly = 9000000, Robin = 75000,
 }
 
-getgenv().GLOBAL_SERVER_BLACKLIST = getgenv().GLOBAL_SERVER_BLACKLIST or {}
+-- Глобальные переменные (чтобы не повторяться)
 getgenv().GLOBAL_PET_HASHES = getgenv().GLOBAL_PET_HASHES or {}
-getgenv()._HOPPER_LOADED = getgenv()._HOPPER_LOADED or false
+getgenv().GLOBAL_SERVER_BLACKLIST = getgenv().GLOBAL_SERVER_BLACKLIST or {}
 
+-- Функция форматирования денег
 local function formatMoney(v)
     if not v then return "?" end
     if v >= 1e6 then return string.format("%.1fM", v / 1e6) end
@@ -28,53 +30,26 @@ local function formatMoney(v)
     return tostring(v)
 end
 
--- БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ЛОКАЛЬНОГО ИГРОКА
-local function getLocalPlayer()
-    local success, result = pcall(function()
-        return Players.LocalPlayer
-    end)
-    if success and result then
-        return result
-    end
-    return nil
-end
-
--- ПРОПУСК ЛОАДИНГА
+-- 1. ПРОПУСК ЗАГРУЗКИ (клик по экрану)
 local function skipLoading()
-    local lp = getLocalPlayer()
-    if not lp then return end
-    
     local playerGui = lp:FindFirstChild("PlayerGui")
-    if not playerGui then return end
-    
-    -- Ищем LoadingGui
-    local loadingGui = playerGui:FindFirstChild("LoadingGui")
-    if loadingGui then
-        for _, btn in ipairs(loadingGui:GetDescendants()) do
-            if btn:IsA("TextButton") then
-                pcall(function() btn:Click() end)
+    if playerGui then
+        local loadingGui = playerGui:FindFirstChild("LoadingGui")
+        if loadingGui then
+            for _, btn in ipairs(loadingGui:GetDescendants()) do
+                if btn:IsA("TextButton") then
+                    pcall(function() btn:Click() end)
+                end
             end
         end
     end
-    
-    -- Ищем любую кнопку с Press
-    for _, btn in ipairs(playerGui:GetDescendants()) do
-        if btn:IsA("TextButton") and (btn.Name == "PressAnyTxt" or string.find(btn.Name or "", "Press")) then
-            pcall(function() btn:Click() end)
-        end
-    end
 end
 
--- СКАНЕР ПИТОМЦЕВ
+-- 2. СКАНЕР ПИТОМЦЕВ
 local function scanWildPets()
     local results = {}
-    
-    local lp = getLocalPlayer()
-    if not lp then return results end
-    
     local map = Workspace:FindFirstChild("Map")
     if not map then return results end
-    
     local wildPets = map:FindFirstChild("WildPetSpawns")
     if not wildPets then return results end
 
@@ -104,13 +79,7 @@ local function scanWildPets()
     return results
 end
 
-local function getPetsHash(pets)
-    if #pets == 0 then return "" end
-    local str = ""
-    for _, p in ipairs(pets) do str = str .. p.pet .. p.timeLeft end
-    return str
-end
-
+-- 3. ОТПРАВКА В DISCORD
 local function getRequester()
     if http_request then return http_request end
     if request then return request end
@@ -118,6 +87,13 @@ local function getRequester()
     if fluxus and fluxus.request then return fluxus.request end
     if KRNL_HTTP and KRNL_HTTP.request then return KRNL_HTTP.request end
     return nil
+end
+
+local function getPetsHash(pets)
+    if #pets == 0 then return "" end
+    local str = ""
+    for _, p in ipairs(pets) do str = str .. p.pet .. p.timeLeft end
+    return str
 end
 
 local function sendToDiscord(pets, serverId)
@@ -133,29 +109,27 @@ local function sendToDiscord(pets, serverId)
         table.insert(lines, string.format("🐾 **%s** - %s | ⏰ %s", p.pet, formatMoney(p.price), p.timeLeft))
     end
 
-    local cmd = string.format("```lua\nGame:GetService('TeleportService'):TeleportToPlaceInstance(%d, '%s')\n```", game.PlaceId, serverId)
-
     local payload = {
         username = "🐾 Scanner",
         embeds = {{
             title = "Wild Pets Found!",
             description = table.concat(lines, "\n"),
             color = 0x44FF44,
-            fields = {{name = "🚀 Teleport", value = cmd, inline = false}},
             footer = {text = string.format("Server: %s", string.sub(serverId, 1, 8))}
         }}
     }
 
     pcall(function()
         req({Url = WEBHOOK, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HttpService:JSONEncode(payload)})
-        print("✅ Sent to Discord!")
+        print("✅ Discord: OK")
     end)
 end
 
--- ХОППЕР
+-- 4. ХОППЕР (РАБОЧАЯ ВЕРСИЯ, БЕЗ ЗАВИСАНИЙ)
 local PLACE_ID = game.PlaceId
-local visited = {}
 local cursor = nil
+local recentServers = {}
+local teleporting = false
 
 local function fetchServers()
     local servers = {}
@@ -170,7 +144,7 @@ local function fetchServers()
     cursor = data.nextPageCursor
     for _, srv in ipairs(data.data) do
         if srv.playing and srv.playing >= 1 and srv.playing <= 12 then
-            if not visited[srv.id] and not getgenv().GLOBAL_SERVER_BLACKLIST[srv.id] and srv.id ~= game.JobId then
+            if not recentServers[srv.id] and srv.id ~= game.JobId then
                 table.insert(servers, srv)
             end
         end
@@ -179,78 +153,72 @@ local function fetchServers()
 end
 
 local function doHop()
+    if teleporting then return end
+
     local servers = fetchServers()
     if #servers == 0 then
-        task.wait(3)
-        return doHop()
+        print("⚠️ No servers found, waiting...")
+        task.wait(5)
+        return
     end
 
     local target = servers[math.random(#servers)]
-    print(string.format("🚀 Hopping to %s (%d players)", string.sub(target.id, 1, 8), target.playing))
-    visited[target.id] = true
+    print(string.format("🚀 Hop to %s (%d players)", string.sub(target.id, 1, 8), target.playing))
+    recentServers[target.id] = true
     getgenv().GLOBAL_SERVER_BLACKLIST[target.id] = true
+    teleporting = true
 
     task.wait(1)
-    
-    local lp = getLocalPlayer()
-    if lp then
+    pcall(function()
         TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, lp)
-    else
-        TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id)
-    end
+    end)
+    teleporting = false
 end
 
--- =========================================================
--- ОСНОВНОЙ ЦИКЛ
--- =========================================================
-local function run()
-    print("🐾 Scanner Started")
+-- 5. ОСНОВНОЙ ЦИКЛ (ПРОСТОЙ И ПОНЯТНЫЙ)
+local function runCycle()
+    print("===================================")
+    print("🐾 SCAN CYCLE START")
     
-    -- Ждём игрока
-    local lp = nil
+    -- Ждем пока персонаж появится (но не вечно)
     local waitTime = 0
-    while not lp and waitTime < 30 do
-        lp = getLocalPlayer()
-        if not lp then
-            task.wait(1)
-            waitTime = waitTime + 1
-        end
+    while (not lp or not lp.Character) and waitTime < 15 do
+        task.wait(1)
+        waitTime = waitTime + 1
+        print("Wait for character...", waitTime)
     end
     
-    if not lp then
-        print("❌ LocalPlayer not found after 30 seconds, retrying...")
-        return
+    if not lp or not lp.Character then
+        print("⚠️ Character not loaded, hopping anyway")
     end
     
-    print("✅ LocalPlayer found: " .. (lp.Name or "Unknown"))
-    
-    task.wait(2)
     skipLoading()
-    task.wait(1)
+    task.wait(2)
     
+    -- Сканируем
     local pets = scanWildPets()
     print(string.format("📊 Found: %d pets", #pets))
-
+    
+    -- Отправляем, если есть
     if #pets > 0 then
         sendToDiscord(pets, game.JobId)
         task.wait(2)
     end
     
-    print("🔄 Hopping...")
+    -- Хопаем
     doHop()
 end
 
--- =========================================================
 -- ЗАПУСК
--- =========================================================
-print("🐾 Ultra Safe Scanner")
-print("📡 Webhook: " .. WEBHOOK)
+print("🐾 FINAL WORKING SCRIPT LOADED")
+print("📡 Webhook set:", WEBHOOK)
 
+-- Бесконечный цикл работы
 while true do
-    local success, err = pcall(run)
+    local success, err = pcall(runCycle)
     if not success then
-        print("❌ Error: " .. tostring(err))
+        print("❌ Error in cycle:", err)
     end
-    print("🔁 Restarting in 10 seconds...")
-    task.wait(10)
+    print("🔄 Restarting cycle in 5 seconds...")
+    task.wait(5)
 end
