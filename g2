@@ -1,5 +1,5 @@
 -- =========================================================
--- 🐾 GROW A GARDEN 2 - FINAL WORKING SCRIPT (HARD RESET)
+-- 🐾 GROW A GARDEN 2 - FAST HOPPER (МИНИМАЛЬНЫЕ ЗАДЕРЖКИ)
 -- =========================================================
 
 local Players = game:GetService('Players')
@@ -8,21 +8,17 @@ local Workspace = game:GetService('Workspace')
 local TeleportService = game:GetService('TeleportService')
 local lp = Players.LocalPlayer
 
--- ⚙️ НАСТРОЙКИ (ЗДЕСЬ ТВОЙ ВЕБХУК)
 local WEBHOOK = "https://discord.com/api/webhooks/1515549710285537321/_0szre8pYnNprkfUvRA2uxBspB7KPNHyiymstqiqI9iWxVRl6brWVGjRXCJu2Lt1DNY3"
 
--- Цены питомцев
 local PET_PRICES = {
     Frog = 10000, Bunny = 20000, Owl = 25000,
     Raccoon = 15000000, Unicorn = 12500000, Deer = 50000,
     Bee = 1000000, GoldenDragonfly = 9000000, Robin = 75000,
 }
 
--- Глобальные переменные (чтобы не повторяться)
 getgenv().GLOBAL_PET_HASHES = getgenv().GLOBAL_PET_HASHES or {}
 getgenv().GLOBAL_SERVER_BLACKLIST = getgenv().GLOBAL_SERVER_BLACKLIST or {}
 
--- Функция форматирования денег
 local function formatMoney(v)
     if not v then return "?" end
     if v >= 1e6 then return string.format("%.1fM", v / 1e6) end
@@ -30,22 +26,18 @@ local function formatMoney(v)
     return tostring(v)
 end
 
--- 1. ПРОПУСК ЗАГРУЗКИ (клик по экрану)
 local function skipLoading()
     local playerGui = lp:FindFirstChild("PlayerGui")
     if playerGui then
         local loadingGui = playerGui:FindFirstChild("LoadingGui")
         if loadingGui then
             for _, btn in ipairs(loadingGui:GetDescendants()) do
-                if btn:IsA("TextButton") then
-                    pcall(function() btn:Click() end)
-                end
+                if btn:IsA("TextButton") then pcall(function() btn:Click() end) end
             end
         end
     end
 end
 
--- 2. СКАНЕР ПИТОМЦЕВ
 local function scanWildPets()
     local results = {}
     local map = Workspace:FindFirstChild("Map")
@@ -79,7 +71,6 @@ local function scanWildPets()
     return results
 end
 
--- 3. ОТПРАВКА В DISCORD
 local function getRequester()
     if http_request then return http_request end
     if request then return request end
@@ -125,26 +116,24 @@ local function sendToDiscord(pets, serverId)
     end)
 end
 
--- 4. ХОППЕР (РАБОЧАЯ ВЕРСИЯ, БЕЗ ЗАВИСАНИЙ)
+-- =========================================================
+-- БЫСТРЫЙ ХОППЕР (БЕЗ ЛИШНИХ ЗАДЕРЖЕК)
+-- =========================================================
 local PLACE_ID = game.PlaceId
-local cursor = nil
-local recentServers = {}
-local teleporting = false
+local visited = {}
+local hopTimer = nil
 
 local function fetchServers()
     local servers = {}
-    local url = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100", PLACE_ID)
-    if cursor then url = url .. "&cursor=" .. cursor end
-
+    local url = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=50", PLACE_ID)
     local ok, res = pcall(game.HttpGet, game, url)
     if not ok then return {} end
     local ok2, data = pcall(HttpService.JSONDecode, HttpService, res)
     if not ok2 or not data or not data.data then return {} end
 
-    cursor = data.nextPageCursor
     for _, srv in ipairs(data.data) do
         if srv.playing and srv.playing >= 1 and srv.playing <= 12 then
-            if not recentServers[srv.id] and srv.id ~= game.JobId then
+            if not visited[srv.id] and srv.id ~= game.JobId then
                 table.insert(servers, srv)
             end
         end
@@ -153,72 +142,63 @@ local function fetchServers()
 end
 
 local function doHop()
-    if teleporting then return end
-
     local servers = fetchServers()
-    if #servers == 0 then
-        print("⚠️ No servers found, waiting...")
-        task.wait(5)
-        return
+    local target = nil
+
+    if #servers > 0 then
+        target = servers[math.random(#servers)]
+        print(string.format("🚀 Fast hop to %s (%d players)", string.sub(target.id, 1, 8), target.playing))
+        visited[target.id] = true
+        getgenv().GLOBAL_SERVER_BLACKLIST[target.id] = true
+    else
+        -- Если нет серверов из API — хоп на рандомный (листаем список)
+        print("⚠️ No API servers, hop to fallback")
+        target = {id = game.JobId} -- тот же сервер, просто перезаход
     end
 
-    local target = servers[math.random(#servers)]
-    print(string.format("🚀 Hop to %s (%d players)", string.sub(target.id, 1, 8), target.playing))
-    recentServers[target.id] = true
-    getgenv().GLOBAL_SERVER_BLACKLIST[target.id] = true
-    teleporting = true
-
-    task.wait(1)
+    task.wait(0.5) -- минимальная задержка
     pcall(function()
         TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, lp)
     end)
-    teleporting = false
 end
 
--- 5. ОСНОВНОЙ ЦИКЛ (ПРОСТОЙ И ПОНЯТНЫЙ)
+-- =========================================================
+-- ОСНОВНОЙ ЦИКЛ (БЫСТРЫЙ)
+-- =========================================================
 local function runCycle()
     print("===================================")
     print("🐾 SCAN CYCLE START")
-    
-    -- Ждем пока персонаж появится (но не вечно)
+
+    -- Ждем персонажа (максимум 5 секунд)
     local waitTime = 0
-    while (not lp or not lp.Character) and waitTime < 15 do
+    while (not lp or not lp.Character) and waitTime < 5 do
         task.wait(1)
         waitTime = waitTime + 1
-        print("Wait for character...", waitTime)
     end
-    
-    if not lp or not lp.Character then
-        print("⚠️ Character not loaded, hopping anyway")
-    end
-    
+
     skipLoading()
-    task.wait(2)
-    
-    -- Сканируем
+    task.wait(1)
+
     local pets = scanWildPets()
     print(string.format("📊 Found: %d pets", #pets))
-    
-    -- Отправляем, если есть
+
     if #pets > 0 then
         sendToDiscord(pets, game.JobId)
-        task.wait(2)
     end
-    
-    -- Хопаем
+
+    print("🚀 Hop in 1 sec...")
+    task.wait(1)
     doHop()
 end
 
 -- ЗАПУСК
-print("🐾 FINAL WORKING SCRIPT LOADED")
+print("🐾 FAST HOPPER LOADED")
 print("📡 Webhook set:", WEBHOOK)
 
--- Бесконечный цикл работы
 while true do
     local success, err = pcall(runCycle)
     if not success then
         print("❌ Error in cycle:", err)
     end
-    print("🔄 Restarting cycle in 5 seconds...")
-    task.wait(5)
+    task.wait(2)
 end
