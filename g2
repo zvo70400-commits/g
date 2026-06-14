@@ -1,11 +1,12 @@
 -- =========================================================
--- 🐾 GROW A GARDEN 2 - SYNAPSE Z AUTO HOPPER
+-- 🐾 GROW A GARDEN 2 - SELF-RESTARTING HOPPER
 -- =========================================================
 
 local Players = game:GetService('Players')
 local HttpService = game:GetService('HttpService')
 local Workspace = game:GetService('Workspace')
 local TeleportService = game:GetService('TeleportService')
+local RunService = game:GetService('RunService')
 local lp = Players.LocalPlayer
 
 local SCRIPT_URL = "https://raw.githubusercontent.com/zvo70400-commits/g/refs/heads/main/g2"
@@ -19,6 +20,7 @@ local PET_PRICES = {
 
 getgenv().GLOBAL_SERVER_BLACKLIST = getgenv().GLOBAL_SERVER_BLACKLIST or {}
 getgenv().GLOBAL_PET_HASHES = getgenv().GLOBAL_PET_HASHES or {}
+getgenv()._HOPPER_LOADED = getgenv()._HOPPER_LOADED or false
 
 local function formatMoney(v)
     if not v then return "?" end
@@ -27,17 +29,39 @@ local function formatMoney(v)
     return tostring(v)
 end
 
+-- =========================================================
+-- ГАРАНТИРОВАННЫЙ ПРОПУСК ЛОАДИНГА
+-- =========================================================
 local function skipLoading()
+    -- Способ 1: через PlayerGui
     local playerGui = lp:FindFirstChild("PlayerGui")
-    if not playerGui then return end
-    local loadingGui = playerGui:FindFirstChild("LoadingGui")
-    if loadingGui then
-        for _, btn in ipairs(loadingGui:GetDescendants()) do
-            if btn:IsA("TextButton") then
-                pcall(function() btn:Click() end)
-                break
+    if playerGui then
+        -- Ищем LoadingGui
+        local loadingGui = playerGui:FindFirstChild("LoadingGui")
+        if loadingGui then
+            -- Нажимаем все кнопки подряд
+            for _, btn in ipairs(loadingGui:GetDescendants()) do
+                if btn:IsA("TextButton") then
+                    pcall(function() btn:Click() end)
+                end
             end
         end
+        
+        -- Способ 2: ищем любую кнопку с PressAnyTxt
+        for _, btn in ipairs(playerGui:GetDescendants()) do
+            if btn:IsA("TextButton") and (btn.Name == "PressAnyTxt" or string.find(btn.Name, "Press")) then
+                pcall(function() btn:Click() end)
+            end
+        end
+    end
+    
+    -- Способ 3: через VirtualInputManager (симуляция нажатия клавиши)
+    local virtual = game:GetService("VirtualInputManager")
+    if virtual then
+        pcall(function()
+            virtual:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+            virtual:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+        end)
     end
 end
 
@@ -84,7 +108,6 @@ end
 local function getRequester()
     if http_request then return http_request end
     if request then return request end
-    if syn and syn.request then return syn.request end
     if syn and syn.request then return syn.request end
     if fluxus and fluxus.request then return fluxus.request end
     if KRNL_HTTP and KRNL_HTTP.request then return KRNL_HTTP.request end
@@ -168,10 +191,16 @@ end
 -- =========================================================
 -- ОСНОВНОЙ ЦИКЛ
 -- =========================================================
-print("🐾 Synapse Z Auto Scanner Started")
-
-while true do
+local function run()
+    print("🐾 Synapse Z Auto Scanner Started")
+    
+    -- Ждём загрузки
+    repeat task.wait() until lp
     task.wait(2)
+    
+    -- Пропускаем лоадинг (несколько раз для гарантии)
+    skipLoading()
+    task.wait(1)
     skipLoading()
     task.wait(1)
     
@@ -185,4 +214,32 @@ while true do
     
     print("🔄 Hopping...")
     doHop()
+end
+
+-- =========================================================
+-- ВСТРОЕННЫЙ АВТОПЕРЕЗАПУСК
+-- =========================================================
+if not getgenv()._HOPPER_LOADED then
+    getgenv()._HOPPER_LOADED = true
+    
+    -- Способ 1: queue_on_teleport (если есть)
+    if queue_on_teleport then
+        queue_on_teleport([[
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/zvo70400-commits/g/refs/heads/main/g2"))()
+        ]])
+        print("✅ queue_on_teleport registered")
+    end
+    
+    -- Способ 2: бесконечный цикл (если нет queue)
+    while true do
+        local success, err = pcall(run)
+        if not success then
+            print("❌ Error: " .. tostring(err))
+        end
+        print("🔁 Restarting in 10 seconds...")
+        task.wait(10)
+    end
+else
+    -- Если уже был запущен, просто запускаем цикл
+    run()
 end
